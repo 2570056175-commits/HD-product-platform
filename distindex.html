@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>外贸产品库管理平台</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
+    .layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: #001529; color: #fff; padding: 20px 0; }
+    .sidebar h2 { text-align: center; margin-bottom: 30px; font-size: 18px; }
+    .menu-item { padding: 14px 30px; cursor: pointer; transition: 0.3s; }
+    .menu-item:hover, .menu-item.active { background: #1890ff; }
+    .main { flex: 1; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .toolbar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .login-page { display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .login-box { background: #fff; padding: 40px; border-radius: 10px; width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .login-box h1 { text-align: center; margin-bottom: 30px; color: #333; }
+    .product-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 15px; background: #fff; margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 登录页 -->
+    <div v-if="!token" class="login-page">
+      <div class="login-box">
+        <h1>外贸产品库管理平台</h1>
+        <el-form :model="loginForm" label-width="80px">
+          <el-form-item label="用户名">
+            <el-input v-model="loginForm.username" placeholder="admin"></el-input>
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="loginForm.password" type="password" placeholder="admin123"></el-input>
+          </el-form-item>
+          <el-button type="primary" style="width:100%" @click="login" :loading="logging">登录</el-button>
+        </el-form>
+      </div>
+    </div>
+
+    <!-- 主布局 -->
+    <div v-else class="layout">
+      <div class="sidebar">
+        <h2>产品库管理</h2>
+        <div class="menu-item" :class="{active: currentPage==='products'}" @click="currentPage='products'">产品管理</div>
+        <div class="menu-item" :class="{active: currentPage==='materials'}" @click="currentPage='materials'">素材中心</div>
+        <div class="menu-item" :class="{active: currentPage==='knowledge'}" @click="currentPage='knowledge'">知识库</div>
+        <div class="menu-item" @click="logout" style="margin-top: 50px;">退出登录</div>
+      </div>
+
+      <div class="main">
+        <!-- 产品管理 -->
+        <div v-if="currentPage==='products'">
+          <div class="header">
+            <h2>产品列表</h2>
+            <el-button type="primary" @click="showProductDialog()">新增产品</el-button>
+          </div>
+          <div class="toolbar">
+            <el-input v-model="keyword" placeholder="搜索产品名称/SKU" style="width:300px" clearable @clear="loadProducts"></el-input>
+            <el-select v-model="statusFilter" placeholder="状态" style="width:120px" clearable @change="loadProducts">
+              <el-option label="上架" value="online"></el-option>
+              <el-option label="下架" value="offline"></el-option>
+              <el-option label="草稿" value="draft"></el-option>
+            </el-select>
+          </div>
+
+          <el-table :data="products" border stripe>
+            <el-table-column prop="sku" label="SKU" width="120"></el-table-column>
+            <el-table-column prop="name_cn" label="产品名称"></el-table-column>
+            <el-table-column prop="name_en" label="英文名称"></el-table-column>
+            <el-table-column prop="hs_code" label="HS编码" width="120"></el-table-column>
+            <el-table-column prop="moq" label="MOQ" width="80"></el-table-column>
+            <el-table-column prop="price" label="价格(USD)" width="100"></el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{row}">
+                <el-tag :type="row.status==='online'?'success':'info'">
+                  {{ row.status==='online'?'上架':row.status==='offline'?'下架':'草稿' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="280" fixed="right">
+              <template #default="{row}">
+                <el-button size="small" @click="showProductDialog(row)">编辑</el-button>
+                <el-button size="small" @click="toggleStatus(row)">{{ row.status==='online'?'下架':'上架' }}</el-button>
+                <el-button size="small" type="danger" @click="deleteProduct(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-pagination 
+            v-model:current-page="page" 
+            v-model:page-size="pageSize"
+            :total="total"
+            style="margin-top:20px; justify-content:flex-end"
+            @current-change="loadProducts"
+            layout="total, prev, pager, next"
+          />
+        </div>
+
+        <!-- 素材中心 -->
+        <div v-if="currentPage==='materials'">
+          <div class="header">
+            <h2>素材中心</h2>
+          </div>
+          <div class="toolbar">
+            <el-select v-model="selectedProduct" placeholder="选择产品" style="width:300px" @change="loadMaterials">
+              <el-option v-for="p in products" :key="p.id" :label="p.name_cn" :value="p.id"></el-option>
+            </el-select>
+            <el-upload
+              action="/api/materials/upload"
+              :headers="{ Authorization: 'Bearer ' + token }"
+              :data="{ product_id: selectedProduct, type: 'image' }"
+              :show-file-list="false"
+              :on-success="uploadSuccess"
+            >
+              <el-button type="primary" :disabled="!selectedProduct">上传素材</el-button>
+            </el-upload>
+          </div>
+
+          <div v-if="materials.length" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px;">
+            <div v-for="m in materials" :key="m.id" class="product-card">
+              <img :src="m.url" style="width:100%; height:150px; object-fit:cover; border-radius:4px; margin-bottom:10px">
+              <p style="font-size:12px; color:#666; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ m.name }}</p>
+              <el-button size="small" type="danger" style="width:100%; margin-top:10px" @click="deleteMaterial(m)">删除</el-button>
+            </div>
+          </div>
+          <el-empty v-else description="请选择产品查看素材"></el-empty>
+        </div>
+
+        <!-- 知识库 -->
+        <div v-if="currentPage==='knowledge'">
+          <div class="header">
+            <h2>知识库</h2>
+            <el-button type="primary" @click="showKnowledgeDialog()">新增文档</el-button>
+          </div>
+          <div class="toolbar">
+            <el-input v-model="kwKeyword" placeholder="搜索文档" style="width:300px" clearable @clear="loadKnowledge"></el-input>
+          </div>
+
+          <el-table :data="knowledgeList" border stripe>
+            <el-table-column prop="title" label="标题"></el-table-column>
+            <el-table-column prop="category" label="分类" width="120"></el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="180"></el-table-column>
+            <el-table-column label="操作" width="200">
+              <template #default="{row}">
+                <el-button size="small" @click="showKnowledgeDialog(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="deleteKnowledge(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 产品编辑弹窗 -->
+    <el-dialog v-model="productDialogVisible" title="产品信息" width="600px">
+      <el-form :model="productForm" label-width="100px">
+        <el-form-item label="SKU编码">
+          <el-input v-model="productForm.sku"></el-input>
+        </el-form-item>
+        <el-form-item label="中文名称">
+          <el-input v-model="productForm.name_cn"></el-input>
+        </el-form-item>
+        <el-form-item label="英文名称">
+          <el-input v-model="productForm.name_en"></el-input>
+        </el-form-item>
+        <el-form-item label="规格">
+          <el-input v-model="productForm.specification"></el-input>
+        </el-form-item>
+        <el-form-item label="材质">
+          <el-input v-model="productForm.material"></el-input>
+        </el-form-item>
+        <el-form-item label="HS编码">
+          <el-input v-model="productForm.hs_code"></el-input>
+        </el-form-item>
+        <el-form-item label="起订量(MOQ)">
+          <el-input-number v-model="productForm.moq" :min="1"></el-input-number>
+        </el-form-item>
+        <el-form-item label="价格(USD)">
+          <el-input-number v-model="productForm.price" :min="0" :precision="2"></el-input-number>
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="productForm.status">
+            <el-option label="草稿" value="draft"></el-option>
+            <el-option label="上架" value="online"></el-option>
+            <el-option label="下架" value="offline"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="productForm.category"></el-input>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="productForm.tags" placeholder="多个标签用逗号分隔"></el-input>
+        </el-form-item>
+        <el-form-item label="产品描述">
+          <el-input v-model="productForm.description" type="textarea" :rows="3"></el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="productDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveProduct">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 知识库编辑弹窗 -->
+    <el-dialog v-model="knowledgeDialogVisible" title="知识库文档" width="600px">
+      <el-form :model="knowledgeForm" label-width="100px">
+        <el-form-item label="标题">
+          <el-input v-model="knowledgeForm.title"></el-input>
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="knowledgeForm.category" placeholder="产品知识/合规知识/市场知识"></el-input>
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="knowledgeForm.content" type="textarea" :rows="8"></el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="knowledgeDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveKnowledge">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted } = Vue;
+
+    const app = createApp({
+      setup() {
+        const token = ref(localStorage.getItem('token') || '');
+        const currentPage = ref('products');
+        const loginForm = ref({ username: 'admin', password: 'admin123' });
+        const logging = ref(false);
+
+        // 产品相关
+        const products = ref([]);
+        const total = ref(0);
+        const keyword = ref('');
+        const statusFilter = ref('');
+        const page = ref(1);
+        const pageSize = ref(20);
+        const productDialogVisible = ref(false);
+        const productForm = ref({});
+        const editingProductId = ref(null);
+
+        // 素材相关
+        const selectedProduct = ref(null);
+        const materials = ref([]);
+
+        // 知识库相关
+        const knowledgeList = ref([]);
+        const kwKeyword = ref('');
+        const knowledgeDialogVisible = ref(false);
+        const knowledgeForm = ref({});
+        const editingKnowledgeId = ref(null);
+
+        // 设置请求头
+        axios.interceptors.request.use(config => {
+          if (token.value) config.headers.Authorization = `Bearer ${token.value}`;
+          return config;
+        });
+
+        // 登录
+        const login = async () => {
+          logging.value = true;
+          try {
+            const res = await axios.post('/api/auth/login', loginForm.value);
+            token.value = res.data.token;
+            localStorage.setItem('token', res.data.token);
+            ElementPlus.ElMessage.success('登录成功');
+            loadProducts();
+          } catch(e) {
+            ElementPlus.ElMessage.error(e.response.data.message);
+          }
+          logging.value = false;
+        };
+
+        const logout = () => {
+          token.value = '';
+          localStorage.removeItem('token');
+        };
+
+        // 加载产品
+        const loadProducts = async () => {
+          const res = await axios.get('/api/products', {
+            params: { keyword: keyword.value, status: statusFilter.value, page: page.value, pageSize: pageSize.value }
+          });
+          products.value = res.data.list;
+          total.value = res.data.total;
+        };
+
+        const showProductDialog = (row = null) => {
+          editingProductId.value = row ? row.id : null;
+          productForm.value = row ? { ...row } : {
+            sku: '', name_cn: '', name_en: '', specification: '', material: '',
+            hs_code: '', moq: 100, price: 0, status: 'draft', category: '', tags: '', description: ''
+          };
+          productDialogVisible.value = true;
+        };
+
+        const saveProduct = async () => {
+          if (editingProductId.value) {
+            await axios.put(`/api/products/${editingProductId.value}`, productForm.value);
+          } else {
+            await axios.post('/api/products', productForm.value);
+          }
+          ElementPlus.ElMessage.success('保存成功');
+          productDialogVisible.value = false;
+          loadProducts();
+        };
+
+        const toggleStatus = async (row) => {
+          const newStatus = row.status === 'online' ? 'offline' : 'online';
+          await axios.put(`/api/products/${row.id}`, { ...row, status: newStatus });
+          ElementPlus.ElMessage.success('操作成功');
+          loadProducts();
+        };
+
+        const deleteProduct = async (row) => {
+          try {
+            await ElementPlus.ElMessageBox.confirm('确定删除该产品？', '提示', { type: 'warning' });
+            await axios.delete(`/api/products/${row.id}`);
+            ElementPlus.ElMessage.success('删除成功');
+            loadProducts();
+          } catch(e) {}
+        };
+
+        // 加载素材
+        const loadMaterials = async () => {
+          if (!selectedProduct.value) return;
+          const res = await axios.get(`/api/materials/product/${selectedProduct.value}`);
+          materials.value = res.data;
+        };
+
+        const uploadSuccess = () => {
+          ElementPlus.ElMessage.success('上传成功');
+          loadMaterials();
+        };
+
+        const deleteMaterial = async (m) => {
+          try {
+            await ElementPlus.ElMessageBox.confirm('确定删除该素材？', '提示', { type: 'warning' });
+            await axios.delete(`/api/materials/${m.id}`);
+            ElementPlus.ElMessage.success('删除成功');
+            loadMaterials();
+          } catch(e) {}
+        };
+
+        // 知识库
+        const loadKnowledge = async () => {
+          const res = await axios.get('/api/knowledge', { params: { keyword: kwKeyword.value } });
+          knowledgeList.value = res.data;
+        };
+
+        const showKnowledgeDialog = (row = null) => {
+          editingKnowledgeId.value = row ? row.id : null;
+          knowledgeForm.value = row ? { ...row } : { title: '', category: '', content: '' };
+          knowledgeDialogVisible.value = true;
+        };
+
+        const saveKnowledge = async () => {
+          if (editingKnowledgeId.value) {
+            await axios.put(`/api/knowledge/${editingKnowledgeId.value}`, knowledgeForm.value);
+          } else {
+            await axios.post('/api/knowledge', knowledgeForm.value);
+          }
+          ElementPlus.ElMessage.success('保存成功');
+          knowledgeDialogVisible.value = false;
+          loadKnowledge();
+        };
+
+        const deleteKnowledge = async (row) => {
+          try {
+            await ElementPlus.ElMessageBox.confirm('确定删除该文档？', '提示', { type: 'warning' });
+            await axios.delete(`/api/knowledge/${row.id}`);
+            ElementPlus.ElMessage.success('删除成功');
+            loadKnowledge();
+          } catch(e) {}
+        };
+
+        onMounted(() => {
+          if (token.value) {
+            loadProducts();
+            loadKnowledge();
+          }
+        });
+
+        return {
+          token, currentPage, loginForm, logging, login, logout,
+          products, total, keyword, statusFilter, page, pageSize,
+          productDialogVisible, productForm, showProductDialog, saveProduct, toggleStatus, deleteProduct, loadProducts,
+          selectedProduct, materials, loadMaterials, uploadSuccess, deleteMaterial,
+          knowledgeList, kwKeyword, knowledgeDialogVisible, knowledgeForm,
+          showKnowledgeDialog, saveKnowledge, deleteKnowledge, loadKnowledge
+        };
+      }
+    });
+
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
+</body>
+</html>
